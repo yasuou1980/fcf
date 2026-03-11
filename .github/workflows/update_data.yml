@@ -1,0 +1,50 @@
+name: Update Screener Data
+on:
+  schedule:
+    - cron: '0 0 * * 6'
+  workflow_dispatch:
+permissions:
+  contents: write
+# Node.js 20の警告(Warning)を消すためのおまじない
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.11
+      # 📂 デバッグ用：クラウド上のフォルダの中身を確認する
+      - name: Check files
+        run: ls -la
+      # 🚀 Pythonスクリプトの実行
+      - name: Run Screener Scripts
+        run: |
+          # ⚠️ 【重要】GitHubにアップロードしたPythonファイル名に書き換えてください！
+          # （例：ファイル名が fcf.py なら uv run fcf.py にする）
+
+          # 👇 あなたのGitHubにあるファイル名に合わせて以下の # を外して修正してください
+
+           echo "米国株のスクリーニングを開始します..."
+           uv run fcf_sp600_v3.py
+
+           echo "日本株のスクリーニングを開始します..."
+           uv run fcf_jpx_all_v2.py
+
+          # echo "全米銘柄のスクリーニングを開始します..."
+          # uv run fcf_us_all_v3.py
+      # 💾 更新されたデータをGitHubに保存
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          # CSVとJSONファイルを強制的に追加
+          git add *.csv *.json || true
+          # 差分があればコミットしてプッシュ
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update screener data [skip ci]" && git push)
