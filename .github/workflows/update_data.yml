@@ -1,0 +1,50 @@
+name: Update Screener Data
+
+# いつ自動実行するか（トリガーの設定）
+on:
+  schedule:
+    # UTC（協定世界時）で指定。毎週土曜日の0:00 (日本時間の土曜 午前9:00) に実行
+    - cron: '0 0 * * 6'
+  workflow_dispatch: # GitHubの画面から手動で強制実行できるようにする設定
+
+permissions:
+  contents: write # リポジトリにCSVを保存(Push)するための権限
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest # クラウド上のLinuxサーバーを使用
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 高速なパッケージマネージャー「uv」をインストール
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      # Pythonのセットアップ
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # スクリーニングスクリプトの実行
+      - name: Run Screener Scripts
+        run: |
+          # 実行したいPythonスクリプトを指定します
+          # （ファイル名が違う場合は、ご自身の設定に合わせて変更してください）
+          
+          echo "米国株(S&P600)のスクリーニングを開始します..."
+          uv run fcf_sp600_v3.py
+          
+          echo "日本株(東証全銘柄)のスクリーニングを開始します..."
+          uv run fcf_jpx_all_v2.py
+
+      # 変更されたCSVをコミットしてGitHubに保存（Push）する
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add *.csv *.json
+          # 差分（変更）がある場合のみコミットしてプッシュ
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update screener data [skip ci]" && git push)
