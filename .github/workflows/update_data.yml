@@ -54,7 +54,8 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # CSVとJSONファイルを強制的に追加
-          git add *.csv *.json || true
+          # CSVとJSONファイルを強制的に追加（別々に実行してエラーを回避）
+          git add *.csv || true
+          git add *.json 2>/dev/null || true
           # 差分があればコミットしてプッシュ
           git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update screener data [skip ci]" && git push)
