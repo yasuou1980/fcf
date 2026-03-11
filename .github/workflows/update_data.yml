@@ -1,50 +1,60 @@
 name: Update Screener Data
 
-# いつ自動実行するか（トリガーの設定）
 on:
   schedule:
-    # UTC（協定世界時）で指定。毎週土曜日の0:00 (日本時間の土曜 午前9:00) に実行
     - cron: '0 0 * * 6'
-  workflow_dispatch: # GitHubの画面から手動で強制実行できるようにする設定
+  workflow_dispatch:
 
 permissions:
-  contents: write # リポジトリにCSVを保存(Push)するための権限
+  contents: write
+
+# Node.js 20の警告(Warning)を消すためのおまじない
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   update-data:
-    runs-on: ubuntu-latest # クラウド上のLinuxサーバーを使用
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 高速なパッケージマネージャー「uv」をインストール
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
 
-      # Pythonのセットアップ
       - name: Set up Python
         run: uv python install 3.11
 
-      # スクリーニングスクリプトの実行
+      # 📂 デバッグ用：クラウド上のフォルダの中身を確認する
+      - name: Check files
+        run: ls -la
+
+      # 🚀 Pythonスクリプトの実行
       - name: Run Screener Scripts
         run: |
-          # 実行したいPythonスクリプトを指定します
-          # （ファイル名が違う場合は、ご自身の設定に合わせて変更してください）
+          # ⚠️ 【重要】GitHubにアップロードしたPythonファイル名に書き換えてください！
+          # （例：ファイル名が fcf.py なら uv run fcf.py にする）
           
-          echo "米国株(S&P600)のスクリーニングを開始します..."
-          uv run fcf_sp600_v3.py
+          # 👇 あなたのGitHubにあるファイル名に合わせて以下の # を外して修正してください
           
-          echo "日本株(東証全銘柄)のスクリーニングを開始します..."
-          uv run fcf_jpx_all_v2.py
+           echo "米国株のスクリーニングを開始します..."
+           uv run fcf_sp600_v3.py
+          
+           echo "日本株のスクリーニングを開始します..."
+           uv run fcf_jpx_all_v2.py
+          
+          # echo "全米銘柄のスクリーニングを開始します..."
+          # uv run fcf_us_all_v3.py
 
-      # 変更されたCSVをコミットしてGitHubに保存（Push）する
+      # 💾 更新されたデータをGitHubに保存
       - name: Commit and Push changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add *.csv *.json
-          # 差分（変更）がある場合のみコミットしてプッシュ
+          # CSVとJSONファイルを強制的に追加
+          git add *.csv *.json || true
+          # 差分があればコミットしてプッシュ
           git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update screener data [skip ci]" && git push)
