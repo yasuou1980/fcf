@@ -1,0 +1,16 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    # 毎日 UTC 0:00 (日本時間 午前9:00) に自動実行
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          # 👇 ご自身のStreamlitアプリのURLに書き換えてください
+          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" https://v7qdcbcustqxvoh2bftd49.streamlit.app/
