@@ -33,7 +33,7 @@ def get_tse_universe_tickers():
     # Tickerと企業名の辞書を作成（後で結合するため）
     tickers_info = []
     for _, row in df.iterrows():
-        ticker = str(row['コード']) + '.T'
+        ticker = str(int(float(row['コード']))) + '.T'
         tickers_info.append({
             'Ticker': ticker,
             'Company_Name': row['銘柄名'],
@@ -79,12 +79,16 @@ def fetch_and_calculate_factors(ticker_dict):
         low_52w = info.get('fiftyTwoWeekLow')
         
         # infoから取れない場合のフォールバック（履歴から計算）
-        if not (high_52w and low_52w) and current_price:
+        # ※ current_price の有無に関わらず、52週データがなければ履歴を取得する
+        if not (high_52w and low_52w):
             hist = ticker.history(period="1y")
             if not hist.empty:
                 high_52w = hist['High'].max()
                 low_52w = hist['Low'].min()
-                
+                # infoにcurrent_priceもない場合は履歴の最終終値で代替
+                if not current_price:
+                    current_price = float(hist['Close'].iloc[-1])
+
         if current_price and high_52w and low_52w and (high_52w - low_52w) > 0:
             data['Price_Range'] = (current_price - low_52w) / (high_52w - low_52w)
             
@@ -262,10 +266,14 @@ def run_screener_pipeline():
     ]
     df_final = df_sorted[output_cols].copy()
     
-    # CSV出力
+    # CSV出力（空データによる既存ファイルの上書きを防止）
     csv_filename = 'yfinance_multibagger_scored_v1.csv'
+    if df_final.empty:
+        print("\n⚠️ 警告: スクリーニング結果が0件です。データ取得に問題がある可能性があります。")
+        print("既存のCSVを保護するため、上書きをスキップします。")
+        return
     df_final.to_csv(csv_filename, index=False, encoding='utf-8-sig')
-    
+
     print("\n✅ スコアリング＆スクリーニングが完了しました！")
     print(f"結果を '{csv_filename}' に保存しました。")
     print("\n=== 総合スコア トップ10銘柄 ===")
