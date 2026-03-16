@@ -39,12 +39,12 @@ jobs:
           # （例：ファイル名が fcf.py なら uv run fcf.py にする）
           
           # 👇 あなたのGitHubにあるファイル名に合わせて以下の # を外して修正してください
-           uv pip install -U yfinance
+           
            echo "米国株のスクリーニングを開始します..."
-           uv run fcf_sp600_v3.py
+           uv run --refresh　fcf_sp600_v3.py
           
            echo "日本株のスクリーニングを開始します..."
-           uv run fcf_jpx_all_v2.py
+           uv run --refresh　fcf_jpx_all_v2.py
                    
       # 💾 更新されたデータをGitHubに保存
       - name: Commit and Push changes
