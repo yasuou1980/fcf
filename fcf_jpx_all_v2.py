@@ -33,7 +33,13 @@ def get_tse_universe_tickers():
     # Tickerと企業名の辞書を作成（後で結合するため）
     tickers_info = []
     for _, row in df.iterrows():
-        ticker = str(int(float(row['コード']))) + '.T'
+        # 文字列として扱い、もし数値として読み込まれていても正しく変換する
+        code_raw = str(row['コード']).strip()
+        # Excelで数値として読み込まれた場合の「1234.0」のような末尾を削除
+        if code_raw.endswith('.0'):
+            code_raw = code_raw[:-2]
+    
+        ticker = code_raw + '.T'
         tickers_info.append({
             'Ticker': ticker,
             'Company_Name': row['銘柄名'],
