@@ -39,7 +39,7 @@ jobs:
           # （例：ファイル名が fcf.py なら uv run fcf.py にする）
           
           # 👇 あなたのGitHubにあるファイル名に合わせて以下の # を外して修正してください
-          
+           uv pip install -U yfinance
            echo "米国株のスクリーニングを開始します..."
            uv run fcf_sp600_v3.py
           
