@@ -45,10 +45,7 @@ jobs:
           
            echo "日本株のスクリーニングを開始します..."
            uv run fcf_jpx_all_v2.py
-          
-          # echo "全米銘柄のスクリーニングを開始します..."
-          # uv run fcf_us_all_v3.py
-
+                   
       # 💾 更新されたデータをGitHubに保存
       - name: Commit and Push changes
         run: |
