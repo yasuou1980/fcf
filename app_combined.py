@@ -1,5 +1,8 @@
+import io
+
 import streamlit as st
 import pandas as pd
+import requests
 
 # ページの基本設定
 st.set_page_config(
@@ -31,9 +34,34 @@ def load_jp_data():
                 df['FCF_Yield_Pct_Num'] = df['FCF_Yield'] * 100
             if 'Price_Range' in df.columns:
                 df['Price_Range_Pct_Num'] = df['Price_Range'] * 100
+            if 'Momentum_6M' in df.columns:
+                df['Momentum_6M_Pct_Num'] = df['Momentum_6M'] * 100
         return df
     except FileNotFoundError:
         return pd.DataFrame()
+
+# ---------------------------------------------------------
+# 金利環境の取得（FRED: FF金利、1日キャッシュ）
+# ---------------------------------------------------------
+@st.cache_data(ttl=86400)
+def get_fed_rate_trend():
+    """直近のFF金利と6ヶ月前を比較し、金利環境（上昇/低下・安定）を返す"""
+    try:
+        url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=FEDFUNDS"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        fed = pd.read_csv(io.StringIO(resp.text))
+        fed.columns = ['date', 'rate']
+        fed['rate'] = pd.to_numeric(fed['rate'], errors='coerce')
+        fed = fed.dropna().tail(7)  # 直近7ヶ月分
+        if len(fed) < 2:
+            return None
+        latest = fed['rate'].iloc[-1]
+        past = fed['rate'].iloc[0]
+        return {'latest': latest, 'past': past, 'rising': latest > past + 0.05,
+                'asof': fed['date'].iloc[-1]}
+    except Exception:
+        return None
 
 df_us = load_us_data()
 df_jp = load_jp_data()
@@ -43,6 +71,23 @@ df_jp = load_jp_data()
 # ---------------------------------------------------------
 st.title("🚀 The Alchemy of Multibagger Stocks")
 st.markdown("論文のロジックに完全準拠した **日米マルチバガースクリーナー**")
+
+# 金利環境バナー（論文6.5節: Fed利上げ局面は翌年リターンを約8〜12pt押し下げる）
+fed_trend = get_fed_rate_trend()
+if fed_trend is None:
+    st.info("ℹ️ 金利データ（FRED）を取得できませんでした。金利環境の表示をスキップします。")
+elif fed_trend['rising']:
+    st.warning(
+        f"⚠️ **金利上昇局面** — FF金利は直近6ヶ月で {fed_trend['past']:.2f}% → {fed_trend['latest']:.2f}% に上昇"
+        f"（{fed_trend['asof']} 時点）。論文の推定では、利上げ局面はマルチバガー型銘柄の翌年リターンを"
+        "**約8〜12ポイント押し下げる**環境です。スコアとは別に留意してください。"
+    )
+else:
+    st.success(
+        f"✅ **金利安定・低下局面** — FF金利は直近6ヶ月で {fed_trend['past']:.2f}% → {fed_trend['latest']:.2f}%"
+        f"（{fed_trend['asof']} 時点）。論文上、グロース系銘柄に追い風の金利環境です。"
+    )
+
 st.markdown("---")
 
 # タブの作成
@@ -77,10 +122,11 @@ with tab_us:
         
         # 表示設定
         display_cols_us = [
-            'Ticker', 'Company_Name', 'Sector', 'Total_Score', 
-            'FCF_Yield_Pct', 'Price_Range_Pct', 'Market_Cap_Billion', 'Data_Quality_Flag'
+            'Ticker', 'Company_Name', 'Sector', 'Total_Score',
+            'FCF_Yield_Pct', 'Price_Range_Pct', 'Momentum_6M_Pct', 'Market_Cap_Billion', 'Data_Quality_Flag'
         ]
-        
+        display_cols_us = [c for c in display_cols_us if c in filtered_us.columns]
+
         st.dataframe(
             filtered_us[display_cols_us],
             use_container_width=True,
@@ -89,6 +135,7 @@ with tab_us:
                 "Total_Score": st.column_config.NumberColumn("Score", format="%.1f"),
                 "FCF_Yield_Pct": st.column_config.TextColumn("FCF利回り"),
                 "Price_Range_Pct": st.column_config.TextColumn("52週安値圏"),
+                "Momentum_6M_Pct": st.column_config.TextColumn("6ヶ月リターン"),
                 "Market_Cap_Billion": st.column_config.TextColumn("時価総額 ($B)"),
                 "Data_Quality_Flag": st.column_config.TextColumn("ステータス")
             }
@@ -122,10 +169,11 @@ with tab_jp:
         
         # 表示設定
         display_cols_jp = [
-            'Ticker', 'Company_Name', 'Total_Score', 
-            'FCF_Yield_Pct_Num', 'Price_Range_Pct_Num', 'Market_Cap_Billion_JPY', 'Data_Quality_Flag'
+            'Ticker', 'Company_Name', 'Total_Score',
+            'FCF_Yield_Pct_Num', 'Price_Range_Pct_Num', 'Momentum_6M_Pct_Num', 'Market_Cap_Billion_JPY', 'Data_Quality_Flag'
         ]
-        
+        display_cols_jp = [c for c in display_cols_jp if c in filtered_jp.columns]
+
         st.dataframe(
             filtered_jp[display_cols_jp],
             use_container_width=True,
@@ -136,6 +184,7 @@ with tab_jp:
                 "Total_Score": st.column_config.NumberColumn("総合スコア", format="%.1f"),
                 "FCF_Yield_Pct_Num": st.column_config.NumberColumn("FCF利回り (%)", format="%.2f"),
                 "Price_Range_Pct_Num": st.column_config.NumberColumn("52週安値圏 (%)", format="%.2f"),
+                "Momentum_6M_Pct_Num": st.column_config.NumberColumn("6ヶ月リターン (%)", format="%.2f"),
                 "Market_Cap_Billion_JPY": st.column_config.NumberColumn("時価総額 (十億円)", format="%.1f"),
                 "Data_Quality_Flag": st.column_config.TextColumn("ステータス")
             }
