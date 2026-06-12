@@ -69,6 +69,7 @@ def fetch_and_calculate_factors(ticker_dict):
         'ROA': np.nan, 'EBITDA_Margin': np.nan,
         'Asset_Growth': np.nan, 'EBITDA_Growth': np.nan,
         'Inv_Dummy': np.nan, 'Price_Range': np.nan,
+        'Momentum_6M': np.nan,
         'Data_Quality_Flag': ""
     }
     
@@ -92,7 +93,19 @@ def fetch_and_calculate_factors(ticker_dict):
                 
         if current_price and high_52w and low_52w and (high_52w - low_52w) > 0:
             data['Price_Range'] = (current_price - low_52w) / (high_52w - low_52w)
-            
+
+        # Technical: 6ヶ月モメンタム（論文では負の係数 = 直近下落銘柄が有利）
+        try:
+            hist_6m = ticker.history(period="7mo")
+            if not hist_6m.empty and len(hist_6m) > 20:
+                first_close = hist_6m['Close'].iloc[0]
+                last_close = hist_6m['Close'].iloc[-1]
+                if first_close and first_close > 0:
+                    data['Momentum_6M'] = (last_close - first_close) / first_close
+        except Exception:
+            pass
+
+
         bs = ticker.balance_sheet
         financials = ticker.financials
         cf = ticker.cashflow
@@ -185,9 +198,11 @@ def calculate_scores(df):
     ]
     df['Score_Investment'] = np.select(conditions, [100, 0], default=50)
     df['Score_Entry'] = 100 - (df['Price_Range'].rank(pct=True) * 100)
-    
+    # 論文: 3-6ヶ月モメンタムは負の係数 → 直近6ヶ月の下落が大きいほど高得点
+    df['Score_Momentum'] = 100 - (df['Momentum_6M'].rank(pct=True) * 100)
+
     # 欠損値フォールバック
-    score_cols = ['Score_Size', 'Score_BM', 'Score_FCFP', 'Score_ROA', 'Score_Profitability', 'Score_Investment', 'Score_Entry']
+    score_cols = ['Score_Size', 'Score_BM', 'Score_FCFP', 'Score_ROA', 'Score_Profitability', 'Score_Investment', 'Score_Entry', 'Score_Momentum']
     df[score_cols] = df[score_cols].fillna(50)
     
     # --- セクター別の Total Score 計算 ---
@@ -200,17 +215,19 @@ def calculate_scores(df):
         0.20 * df.loc[mask_gen, 'Score_BM'] +
         0.25 * df.loc[mask_gen, 'Score_FCFP'] +
         0.15 * df.loc[mask_gen, 'Score_Profitability'] +
-        0.15 * df.loc[mask_gen, 'Score_Investment'] +
-        0.10 * df.loc[mask_gen, 'Score_Entry']
+        0.10 * df.loc[mask_gen, 'Score_Investment'] +
+        0.10 * df.loc[mask_gen, 'Score_Entry'] +
+        0.05 * df.loc[mask_gen, 'Score_Momentum']
     )
-    
+
     # パターンB: 金融・不動産セクター (FCF・EBITDAを除外、B/MとROAを極大化)
-    # ウェイト: BM(40%), ROA(35%), Size(15%), Entry(10%)
+    # ウェイト: BM(35%), ROA(30%), Size(15%), Entry(10%), Momentum(10%)
     df.loc[fin_real_estate_mask, 'Total_Score'] = (
         0.15 * df.loc[fin_real_estate_mask, 'Score_Size'] +
-        0.40 * df.loc[fin_real_estate_mask, 'Score_BM'] +
-        0.35 * df.loc[fin_real_estate_mask, 'Score_ROA'] +
-        0.10 * df.loc[fin_real_estate_mask, 'Score_Entry']
+        0.35 * df.loc[fin_real_estate_mask, 'Score_BM'] +
+        0.30 * df.loc[fin_real_estate_mask, 'Score_ROA'] +
+        0.10 * df.loc[fin_real_estate_mask, 'Score_Entry'] +
+        0.10 * df.loc[fin_real_estate_mask, 'Score_Momentum']
     )
     
     df['Total_Score'] = df['Total_Score'].round(2)
@@ -219,6 +236,7 @@ def calculate_scores(df):
         
     df['FCF_Yield_Pct'] = (df['FCF_Yield'] * 100).round(2).astype(str) + '%'
     df['Price_Range_Pct'] = (df['Price_Range'] * 100).round(2).astype(str) + '%'
+    df['Momentum_6M_Pct'] = (df['Momentum_6M'] * 100).round(2).astype(str) + '%'
     df['Market_Cap_Billion'] = (df['Market_Cap'] / 1_000_000_000).round(2).astype(str) + 'B'
         
     return df
@@ -247,7 +265,7 @@ def run_screener_pipeline():
         'Ticker', 'Company_Name', 'Sector', 'Total_Score', 'Score_Size', 'Score_FCFP', 
         'Market_Cap_Billion', 'Enterprise_Value', 'BM_Ratio', 'FCF_Yield_Pct', 
         'ROA', 'EBITDA_Margin', 'Asset_Growth', 'EBITDA_Growth', 
-        'Inv_Dummy', 'Price_Range_Pct', 'Data_Quality_Flag'
+        'Inv_Dummy', 'Price_Range_Pct', 'Momentum_6M_Pct', 'Score_Momentum', 'Data_Quality_Flag'
     ]
     df_final = df_sorted[output_cols].copy()
     
