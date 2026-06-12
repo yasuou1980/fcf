@@ -16,6 +16,8 @@ import concurrent.futures
 import warnings
 import requests
 import time
+import os
+from datetime import date
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -225,6 +227,15 @@ def run_screener_pipeline():
     csv_filename = 'yfinance_multibagger_scored_v1.csv'
     df_final.to_csv(csv_filename, index=False, encoding='utf-8-sig')
     print(f"\n✅ 完了！結果を '{csv_filename}' に保存しました。")
+
+    # 振り返り検証用に日付付きスナップショットを保存
+    run_date = date.today().isoformat()
+    os.makedirs('history', exist_ok=True)
+    snapshot = df_final.copy()
+    snapshot.insert(0, 'Run_Date', run_date)
+    snapshot_path = f'history/jp_{run_date}.csv'
+    snapshot.to_csv(snapshot_path, index=False, encoding='utf-8-sig')
+    print(f"スナップショットを '{snapshot_path}' に保存しました。")
 
 if __name__ == "__main__":
     run_screener_pipeline()

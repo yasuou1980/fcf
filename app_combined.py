@@ -1,4 +1,6 @@
+import glob
 import io
+import os
 
 import streamlit as st
 import pandas as pd
@@ -91,7 +93,7 @@ else:
 st.markdown("---")
 
 # タブの作成
-tab_us, tab_jp = st.tabs(["🇺🇸 米国小型株 (S&P 600)", "🇯🇵 日本株 (東証全銘柄)"])
+tab_us, tab_jp, tab_review = st.tabs(["🇺🇸 米国小型株 (S&P 600)", "🇯🇵 日本株 (東証全銘柄)", "📈 振り返り検証"])
 
 # =========================================================
 # 🇺🇸 米国株タブ
@@ -189,3 +191,105 @@ with tab_jp:
                 "Data_Quality_Flag": st.column_config.TextColumn("ステータス")
             }
         )
+# =========================================================
+# 📈 振り返り検証タブ
+# =========================================================
+
+@st.cache_data(ttl=3600)
+def load_snapshot(path):
+    return pd.read_csv(path)
+
+@st.cache_data(ttl=3600)
+def fetch_returns_since(tickers, start_date):
+    """スナップショット日以降の各銘柄リターン(%)を取得"""
+    import yfinance as yf
+    prices = yf.download(tickers, start=start_date, progress=False, auto_adjust=True)['Close']
+    if isinstance(prices, pd.Series):
+        prices = prices.to_frame(tickers[0])
+    prices = prices.dropna(how='all')
+    if prices.empty:
+        return pd.Series(dtype=float)
+    first = prices.apply(lambda s: s.dropna().iloc[0] if s.dropna().size else float('nan'))
+    last = prices.apply(lambda s: s.dropna().iloc[-1] if s.dropna().size else float('nan'))
+    return ((last - first) / first * 100).astype(float)
+
+with tab_review:
+    st.subheader("📈 スナップショットの振り返り検証")
+    st.markdown(
+        "毎週保存されたスクリーニング結果（`history/` フォルダ）の上位銘柄が、"
+        "その後どれだけのリターンを上げたかをベンチマークと比較します。"
+    )
+
+    snapshot_files = sorted(glob.glob('history/*.csv'))
+    if not snapshot_files:
+        st.info(
+            "スナップショットがまだありません。スクリーナーを実行すると `history/` に"
+            "日付付きCSVが保存されます（GitHub Actionsで毎週土曜に自動実行されます）。"
+        )
+    else:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            selected_file = st.selectbox(
+                "スナップショットを選択",
+                options=snapshot_files,
+                format_func=os.path.basename,
+                index=0
+            )
+        with col2:
+            top_n = st.slider("検証する上位銘柄数", min_value=5, max_value=50, value=10, step=5)
+        with col3:
+            review_hide_flags = st.checkbox("「要確認」フラグ銘柄を除外", value=True)
+
+        snap = load_snapshot(selected_file)
+        market = 'us' if os.path.basename(selected_file).startswith('us_') else 'jp'
+        run_date = str(snap['Run_Date'].iloc[0]) if 'Run_Date' in snap.columns else None
+
+        if run_date is None:
+            st.error("このスナップショットには Run_Date 列がありません。")
+        else:
+            if review_hide_flags and 'Data_Quality_Flag' in snap.columns:
+                snap = snap[~snap['Data_Quality_Flag'].astype(str).str.contains("要確認", na=False)]
+            top = snap.sort_values('Total_Score', ascending=False).head(top_n).copy()
+            tickers = top['Ticker'].astype(str).tolist()
+            benchmark = '^GSPC' if market == 'us' else '^N225'
+            bench_label = 'S&P 500' if market == 'us' else '日経225'
+
+            with st.spinner(f"{run_date} 以降の株価を取得中..."):
+                try:
+                    returns = fetch_returns_since(tuple(tickers), run_date)
+                    bench_ret = fetch_returns_since((benchmark,), run_date)
+                except Exception as e:
+                    returns, bench_ret = pd.Series(dtype=float), pd.Series(dtype=float)
+                    st.error(f"株価の取得に失敗しました: {e}")
+
+            if returns.empty:
+                st.warning("リターンを計算できる株価データがありませんでした。")
+            else:
+                top['Return_Pct'] = top['Ticker'].astype(str).map(returns)
+                avg_ret = top['Return_Pct'].mean()
+                bench_val = bench_ret.iloc[0] if not bench_ret.empty else None
+                win_rate = (top['Return_Pct'] > 0).mean() * 100
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric(f"上位{len(top)}銘柄 平均リターン", f"{avg_ret:+.2f}%")
+                if bench_val is not None:
+                    m2.metric(
+                        f"{bench_label}（同期間）", f"{bench_val:+.2f}%",
+                        delta=f"超過 {avg_ret - bench_val:+.2f}pt"
+                    )
+                m3.metric("勝率（プラス銘柄比率）", f"{win_rate:.0f}%")
+
+                review_cols = [c for c in ['Ticker', 'Company_Name', 'Sector', 'Total_Score', 'Return_Pct'] if c in top.columns]
+                st.dataframe(
+                    top[review_cols].sort_values('Return_Pct', ascending=False),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Total_Score": st.column_config.NumberColumn("スコア (当時)", format="%.1f"),
+                        "Return_Pct": st.column_config.NumberColumn(f"{run_date} 以降リターン (%)", format="%+.2f"),
+                    }
+                )
+                st.caption(
+                    "注: 配当・取引コストは未考慮。スコア上位銘柄を均等加重した場合の単純比較です。"
+                    "観測期間が短いうちは結果のブレが大きい点に留意してください。"
+                )

@@ -1,0 +1,45 @@
+name: Weekly Screener
+
+on:
+  schedule:
+    # 毎週土曜 06:00 JST (金曜 21:00 UTC) — 週末にその週の終値ベースで実行
+    - cron: '0 21 * * 5'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy lxml html5lib beautifulsoup4 xlrd requests
+
+      - name: Run US screener (S&P 600)
+        run: python fcf_sp600_v3.py
+
+      - name: Run JP screener (TSE all)
+        # 東証全銘柄は時間がかかり、yfinanceのレート制限で失敗することもあるため
+        # 失敗しても米国分のスナップショットはコミットする
+        continue-on-error: true
+        run: python fcf_jpx_all_v2.py
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/ sp600_multibagger_scored_v3_sector.csv yfinance_multibagger_scored_v1.csv
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Weekly screener snapshot: $(date -u +%Y-%m-%d)"
+            git push
+          fi

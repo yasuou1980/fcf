@@ -15,6 +15,8 @@ import pandas as pd
 import numpy as np
 import concurrent.futures
 import warnings
+import os
+from datetime import date
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -271,6 +273,15 @@ def run_screener_pipeline():
     
     csv_filename = 'sp600_multibagger_scored_v3_sector.csv'
     df_final.to_csv(csv_filename, index=False, encoding='utf-8-sig')
+
+    # 振り返り検証用に日付付きスナップショットを保存
+    run_date = date.today().isoformat()
+    os.makedirs('history', exist_ok=True)
+    snapshot = df_final.copy()
+    snapshot.insert(0, 'Run_Date', run_date)
+    snapshot_path = f'history/us_{run_date}.csv'
+    snapshot.to_csv(snapshot_path, index=False, encoding='utf-8-sig')
+    print(f"スナップショットを '{snapshot_path}' に保存しました。")
     
     print("\n✅ セクター別スコアリング＆スクリーニングが完了しました！")
     print(f"結果を '{csv_filename}' に保存しました。")
